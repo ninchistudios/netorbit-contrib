@@ -851,10 +851,18 @@ class NetOrbitCoordinator(DataUpdateCoordinator[NetOrbitData]):
         # old address now belongs to someone else stays offline instead of borrowing their reply.
         arp = await self.hass.async_add_executor_job(_read_arp)
         hub_macs = self._hub_macs()
-        macs = {
-            key: normalize_mac(hub_macs.get(key.removeprefix("hub:")) if key.startswith("hub:") else (self._seen.get(key) or {}).get("mac"))
-            for key in targets
-        }
+        macs: dict[str, str] = {}
+        for key, ip in targets.items():
+            mac = normalize_mac(hub_macs.get(key.removeprefix("hub:")) if key.startswith("hub:") else (self._seen.get(key) or {}).get("mac"))
+            if not mac:
+                continue
+            # Only hold a key to its MAC once ARP has shown that MAC at this address. A hub given its
+            # base MAC, or a MAC entered by hand for a device behind a MAC-NAT repeater, never shows
+            # up there, and must not be kept offline for it.
+            if arp.get(ip) == mac:
+                self._seen.setdefault(key, {"first_seen": dt_util.utcnow().isoformat()})["arp_ip"] = ip
+            if (self._seen.get(key) or {}).get("arp_ip") == ip:
+                macs[key] = mac
         alive: list[tuple[str, str | None]] = []
         for host in results:
             if host.is_alive:

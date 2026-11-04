@@ -203,12 +203,15 @@ def parse_proc_arp(text: str) -> dict[str, str]:
     return out
 
 
-def keys_answering(keys: list[str], macs: dict[str, str | None], answered_by: str | None) -> list[str]:
+def keys_answering(keys: list[str], macs: dict[str, str], answered_by: str | None) -> list[str]:
     """Which of the keys pinged at one address the reply belongs to.
 
     DHCP hands a departed device's address to the next one that asks, so a reply proves only
-    that something has the address. When ARP says which MAC replied, a key with a different
-    known MAC didn't answer. Keys with no known MAC, and replies ARP can't place, count as before.
+    that something has the address. `macs` holds the MAC each key is held to: only keys whose
+    MAC ARP has already shown at this address, so a hub given its base MAC or a device behind a
+    MAC-NAT repeater is never held to a MAC that can't appear. When ARP says which MAC replied,
+    a held key with a different MAC didn't answer. Other keys, and replies ARP can't place,
+    count as before.
     """
     if not answered_by:
         return keys
