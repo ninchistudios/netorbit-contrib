@@ -78,6 +78,7 @@ from .logic import (
     guess_icon,
     guess_icon_from,
     is_random_mac,
+    keys_answering,
     normalize_mac,
     parse_proc_arp,
     rollup_status,
@@ -846,10 +847,18 @@ class NetOrbitCoordinator(DataUpdateCoordinator[NetOrbitData]):
             list(by_ip), count=PING_COUNT, interval=0.3, timeout=PING_TIMEOUT,
             concurrent_tasks=64, privileged=self._privileged,
         )
+        # The pings just refreshed ARP, so it names the MAC behind each reply. A device whose
+        # old address now belongs to someone else stays offline instead of borrowing their reply.
+        arp = await self.hass.async_add_executor_job(_read_arp)
+        hub_macs = self._hub_macs()
+        macs = {
+            key: normalize_mac(hub_macs.get(key.removeprefix("hub:")) if key.startswith("hub:") else (self._seen.get(key) or {}).get("mac"))
+            for key in targets
+        }
         alive: list[tuple[str, str | None]] = []
         for host in results:
             if host.is_alive:
-                for key in by_ip.get(host.address, []):
+                for key in keys_answering(by_ip.get(host.address, []), macs, arp.get(host.address)):
                     alive.append((key, host.address))
         return alive
 

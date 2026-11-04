@@ -158,6 +158,28 @@ async def test_stale_and_recovered(hass: HomeAssistant, fake_net, freezer: Froze
     assert [e.data["name"] for e in back] == [name]
 
 
+async def test_address_handed_to_another_device(hass: HomeAssistant, fake_net, freezer: FrozenDateTimeFactory) -> None:
+    """A device that leaves doesn't stay online because DHCP gave its address to another one."""
+    mac_d = "00:00:5e:00:53:0d"
+    fake_net.alive = {GATEWAY, "192.0.2.11", "192.0.2.12"}
+    fake_net.arp = {"192.0.2.11": MAC_B, "192.0.2.12": mac_d}
+    await _setup(hass, _entry("auto"))
+    gone, moved = "Device 53:0B", "Device 53:0D"
+    assert _node_states(hass)[gone].state == "online"
+
+    # B leaves; D renews onto B's old address before the next sweep
+    fake_net.alive = {GATEWAY, "192.0.2.11"}
+    fake_net.arp = {"192.0.2.11": mac_d}
+    await _advance(hass, freezer, 61)
+    assert _node_states(hass)[gone].state == "recent"
+
+    # the sweep finds D at its new address
+    await _advance(hass, freezer, 300)
+    assert _node_states(hass)[moved].state == "online"
+    assert _node_states(hass)[moved].attributes["ip"] == "192.0.2.11"
+    assert _node_states(hass)[gone].state == "recent"
+
+
 async def test_addressless_hubs_follow_what_is_behind_them(hass: HomeAssistant, fake_net, freezer: FrozenDateTimeFactory) -> None:
     """Hubs with no address can't be pinged, so they take their status from the devices behind
     them (through other addressless hubs too) instead of turning stale once the window passes."""
