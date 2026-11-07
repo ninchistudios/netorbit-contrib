@@ -1209,6 +1209,15 @@ function netorbitZoomView(view, anchor, now, factor, base = NO_VIEW, max = NO_ZO
   };
 }
 
+// Where a card saves the layout picked in its header: one key per card, from the dashboard view it's on and its
+// config. Two cards only share a key when they're the same card on the same view.
+function noLayoutKey(config, path) {
+  const s = (path || "") + "\n" + JSON.stringify(config || {});
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return "netorbit-layout:" + h.toString(36);
+}
+
 class NetOrbitCard extends HTMLElement {
   static getStubConfig() {
     return { title: "Network" };
@@ -1223,16 +1232,22 @@ class NetOrbitCard extends HTMLElement {
     this._edit = false;
     this._view = null; // the part of the map on show; null is the whole map
     this._focus = null; // the hub whose branch is on show on its own (long-press a hub); null is the whole map
+    // A new config starts again from its own `layout`; a pick in the header is saved for this card only.
+    this._layoutOverride = null;
+    this._layoutKey = noLayoutKey(config, typeof location !== "undefined" ? location.pathname : "");
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
   }
 
-  // Radial or balloon: what was last picked in the header on this browser, otherwise the card's `layout` option.
+  // Radial or balloon. The card's `layout` option, unless the header's switch is shown and was used on this card in
+  // this browser. The pick is saved per card (its dashboard view and its config), so it never reaches another card,
+  // and editing the card's config starts again from `layout`.
   _layoutName() {
+    const own = this._config.layout === "balloon" ? "balloon" : "radial";
+    if (this._config.layout_toggle === false) return own;
     if (this._layoutOverride) return this._layoutOverride;
     let picked = null;
-    try { picked = window.localStorage.getItem("netorbit-layout"); } catch (e) { /* storage blocked */ }
-    if (picked === "radial" || picked === "balloon") return picked;
-    return this._config.layout === "balloon" ? "balloon" : "radial";
+    try { picked = window.localStorage.getItem(this._layoutKey); } catch (e) { /* storage blocked */ }
+    return picked === "radial" || picked === "balloon" ? picked : own;
   }
 
   // The card's shape (width over height) for the balloon map to fill: its width against its maximum height.
@@ -1245,7 +1260,7 @@ class NetOrbitCard extends HTMLElement {
   }
 
   _setLayout(name) {
-    try { window.localStorage.setItem("netorbit-layout", name); } catch (e) { /* storage blocked: this view only */ }
+    try { window.localStorage.setItem(this._layoutKey, name); } catch (e) { /* storage blocked: this view only */ }
     this._layoutOverride = name;
     this._view = null;
     this._sig = "";
@@ -2098,6 +2113,9 @@ class NetOrbitCard extends HTMLElement {
       if (y + h > r.height) y -= h + 20;
       el.style.left = Math.max(4, x) + "px"; el.style.top = Math.max(4, y) + "px";
     };
+    // A long-press redraws the map under the finger, so the click that ends it may never reach a node to be
+    // swallowed. Any new press on the map means it's gone, so the next tap is a real one.
+    if (svg) svg.addEventListener("pointerdown", () => { this._pressed = 0; }, true);
     const toSvg = (ev) => {
       const pt = svg.createSVGPoint();
       pt.x = ev.clientX; pt.y = ev.clientY;
@@ -2645,5 +2663,5 @@ if (!window.customCards.find((c) => c.type === "netorbit-card")) {
     documentationURL: "https://github.com/the-scott-davis/netorbit",
   });
 }
-if (typeof module !== "undefined") module.exports = { netorbitLayout, netorbitBalloonLayout, netorbitFocus, noGroupFor, noHeight, netorbitZoomView, netorbitScanMode, netorbitScanText, shareModel, netorbitShareSvg, netorbitDraw, netorbitRevealNode, netorbitRevealGlobal, noPartialPath, noShareType, noFramePump, noPrivateMac };
+if (typeof module !== "undefined") module.exports = { NetOrbitCard, noLayoutKey, netorbitLayout, netorbitBalloonLayout, netorbitFocus, noGroupFor, noHeight, netorbitZoomView, netorbitScanMode, netorbitScanText, shareModel, netorbitShareSvg, netorbitDraw, netorbitRevealNode, netorbitRevealGlobal, noPartialPath, noShareType, noFramePump, noPrivateMac };
 console.info("%c NETORBIT %c " + NETORBIT_VERSION, "color:#0b1220;background:#34d399;font-weight:700", "color:#34d399");

@@ -544,3 +544,63 @@ test("stop() ends the pump and clears its timer", () => {
   assert.strictEqual(finished, 0);
   assert.strictEqual(clk.q.length, 0);
 });
+
+// ---------------------------------------------------------------- the layout a card shows
+
+function layoutCard(config, path, store) {
+  globalThis.localStorage = store;
+  globalThis.location = { pathname: path };
+  const c = new card.NetOrbitCard();
+  c.shadowRoot = {};
+  Object.defineProperty(c, "hass", { set() {}, configurable: true }); // _setLayout redraws; nothing to draw here
+  c.setConfig(config);
+  return c;
+}
+
+function memStore() {
+  const m = {};
+  return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, keys: () => Object.keys(m) };
+}
+
+test("a layout picked on one card stays on that card", () => {
+  const store = memStore();
+  const a = layoutCard({ title: "Network" }, "/lovelace/net", store);
+  a._setLayout("balloon");
+  assert.strictEqual(a._layoutName(), "balloon");
+  assert.deepStrictEqual(store.keys(), [card.noLayoutKey({ title: "Network" }, "/lovelace/net")]);
+  assert.ok(!store.keys().includes("netorbit-layout"), "no site-wide key");
+  // The same card again (a reload) remembers it.
+  assert.strictEqual(layoutCard({ title: "Network" }, "/lovelace/net", store)._layoutName(), "balloon");
+  // Another card, or the same card on another view, starts from its own config.
+  assert.strictEqual(layoutCard({ title: "Upstairs" }, "/lovelace/net", store)._layoutName(), "radial");
+  assert.strictEqual(layoutCard({ title: "Network" }, "/lovelace/other", store)._layoutName(), "radial");
+});
+
+test("with the switch hidden, the card's layout option always wins", () => {
+  const store = memStore();
+  const cfg = { title: "Network", layout: "radial", layout_toggle: false };
+  store.setItem(card.noLayoutKey(cfg, "/lovelace/net"), "balloon");
+  const c = layoutCard(cfg, "/lovelace/net", store);
+  assert.strictEqual(c._layoutName(), "radial");
+  c._layoutOverride = "balloon"; // left over from before the switch was hidden
+  assert.strictEqual(c._layoutName(), "radial");
+  assert.strictEqual(layoutCard({ layout: "balloon", layout_toggle: false }, "/", memStore())._layoutName(), "balloon");
+});
+
+test("editing the card's layout option takes effect over an earlier pick", () => {
+  const store = memStore();
+  const c = layoutCard({ title: "Network" }, "/lovelace/net", store);
+  c._setLayout("balloon");
+  c.setConfig({ title: "Network", layout: "radial" });
+  assert.strictEqual(c._layoutName(), "radial", "a new config starts from its own layout");
+  c.setConfig({ title: "Network", layout: "balloon" });
+  assert.strictEqual(c._layoutName(), "balloon");
+});
+
+test("blocked storage falls back to the card's option, and a pick still works on show", () => {
+  const blocked = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  const c = layoutCard({ layout: "balloon" }, "/", blocked);
+  assert.strictEqual(c._layoutName(), "balloon");
+  c._setLayout("radial");
+  assert.strictEqual(c._layoutName(), "radial");
+});
